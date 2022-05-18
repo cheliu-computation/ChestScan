@@ -97,7 +97,8 @@ def get_CXR8_img(img_name, grey_scale=False, normalize=255, resize=256):
 ### CheXpert Database
 def get_CheXpert_img(img_path, grey_scale=False, normalize=255, resize=256):
     # database info csv path:
-    # '/data/che/CheXpert/CheXpert-v1.0'
+    # '/data/che/CheXpert/CheXpert-v1.0/train.csv'
+    # '/data/che/CheXpert/CheXpert-v1.0/test.csv'
     # img_name: png file name
     # original intensity: 255
     # original resolution 2000+
@@ -135,7 +136,7 @@ def get_CheXpert_img(img_path, grey_scale=False, normalize=255, resize=256):
 ### MIMIC-CXR Database
 def get_MIMIC_img(subject_id, study_id, grey_scale=False, normalize=255, resize=256):
     # database info csv path:
-    # '/data/che/MIMIC-CXR/files/'
+    # '/data/che/MIMIC-CXR/'mimic-cxr-2.0.0-metadata.csv''
     # subject_id: ~, study_id: ~
     # original intensity: 255
     # original resolution 3000+
