@@ -150,6 +150,9 @@ class CXR8(Dataset):
 # train_dataloader = DataLoader(dataset=train_dataset, batch_size=64, pin_memory=True, num_workers=8, shuffle=True)
 # test_dataloader = DataLoader(dataset=test_dataset, batch_size=64, pin_memory=False, num_workers=8, shuffle=False)
 
+### split and extract label from CXR8 csv
+def spl_ext(label_series):
+	return label_series.str.slice(1, -1).str.replace('\'','', regex=True).str.split(', ')
 ###-----------------------------------------------------------------------###
 
 ### CheXpert Database
@@ -235,7 +238,8 @@ def get_MIMIC_img(subject_id, study_id, dicom, grey_scale=False, normalize=255, 
             return img.astype('float16')
 
 ### MIMIC_CheX Dataset
-class MIMIC_CheX(Dataset):
+### MIMIC_CheX Dataset
+class MIMIC_CheX_CXR8(Dataset):
     """Face Landmarks dataset."""
 
     def __init__(self, img_data, target_csv, database, transform=None):
@@ -252,7 +256,6 @@ class MIMIC_CheX(Dataset):
         self.transform = transform
         self.database = database
 
-
     def __len__(self):
         return (self.target_csv.shape[0])
 
@@ -266,6 +269,8 @@ class MIMIC_CheX(Dataset):
             target = self.target_csv.iloc[idx, 3:]
         elif self.database == 'CheX':
             target = self.target_csv.iloc[idx, 5:]
+        elif self.database == 'CXR8':
+            target = self.target_csv.iloc[idx, 3:]
             
         target = target.replace(np.nan, 0.0)
         target = torch.tensor(target).type(torch.float)
@@ -277,7 +282,9 @@ class MIMIC_CheX(Dataset):
 
         return sample
 
-### code demo for MIMIC-CXR/CheXpert dataset and dataloader
+### code demo for MIMIC-CXR/CheXpert/CXR8 dataset and dataloader
+
+## MIMIC-CXR dataset loading
 
 # raw_train_dataset = np.load('/data/che/MIMIC-CXR/train_test_val/train.npy')
 # train_csv = pd.read_csv('/data/che/MIMIC-CXR/train_test_val/train.csv')
@@ -296,4 +303,20 @@ class MIMIC_CheX(Dataset):
 # test_dataloader = DataLoader(dataset=test_dataset, batch_size=64, pin_memory=False, num_workers=8, shuffle=False)
 # val_dataloader = DataLoader(dataset=val_dataset, batch_size=64, pin_memory=False, num_workers=8, shuffle=False)
 
+## CheXpert dataset loading
+
+# raw_train_dataset = np.load('/data/che/MIMIC-CXR/train_test_val/train.npy')
+# train_csv = pd.read_csv('/data/che/MIMIC-CXR/train_test_val/train.csv')
+
+## CXR8 dataset loading
+
+# raw_train_dataset = np.load('/data/che/CXR8/DL_data_6_label/CXR8_train_6_label.npy')
+# train_csv = pd.read_csv('/data/che/CXR8/DL_data_6_label/train_no_normal_6.csv')
+
 ###-----------------------------------------------------------------------###
+
+
+'''
+intersected label: ['Atelectasis', 'Cardiomegaly', 'Consolidation', 'Edema', 'Pneumonia', 'Pneumothorax']
+difference label: ['Effusion', 'Emphysema', 'Fibrosis', 'Hernia', 'Infiltration', 'Mass', 'Nodule', 'Pleural_Thickening']
+'''
