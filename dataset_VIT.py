@@ -35,7 +35,7 @@ def data_prep(task, batch_size):
             image = self.img_data[idx].astype(np.float32)
 
             if self.database == 'MIMIC':
-                target = self.target_csv.iloc[idx, 4:]
+                target = self.target_csv.iloc[idx, 3:]
             elif self.database == 'CheX':
                 target = self.target_csv.iloc[idx, 6:]
             elif self.database == 'CXR8':
@@ -65,7 +65,7 @@ def data_prep(task, batch_size):
         train_csv = pd.read_csv('/rds/general/user/cl522/home/X-scan/MIMIC/train_test_val/MIMIC_train.csv')
 
         raw_test_dataset = np.load('/rds/general/user/cl522/home/X-scan/MIMIC/train_test_val/MIMIC_test.npy', mmap_mode='r')
-        test_csv = pd.read_csv('/rds/general/user/cl522/home/X-scan/MIMIC/MIMIC_test.csv')
+        test_csv = pd.read_csv('/rds/general/user/cl522/home/X-scan/MIMIC/train_test_val/MIMIC_test.csv')
     
     elif task == 'CheX':
         print('CheX task loading')
@@ -88,22 +88,24 @@ def data_prep(task, batch_size):
     
     composed = transforms.Compose([
         transforms.ToTensor(),
-        transforms.CenterCrop(236),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomRotation(degrees=(0, 180)),
         transforms.RandomAutocontrast(p=0.5)])   
+
+    test_transform = transforms.Compose([
+        transforms.ToTensor()])
 
     train_dataset = MIMIC_CheX_CXR8(img_data=raw_train_dataset, 
     target_csv=train_csv, database=task, transform=composed)
 
     test_dataset = MIMIC_CheX_CXR8(img_data=raw_test_dataset, 
-    target_csv=test_csv, database=task, transform=composed)
+    target_csv=test_csv, database=task, transform=test_transform)
 
     train_dataloader = DataLoader(dataset=train_dataset, 
-    batch_size=batch_size, num_workers=2, pin_memory=True, shuffle=True)
+    batch_size=batch_size, num_workers=32, pin_memory=True, shuffle=True)
 
     test_dataloader = DataLoader(dataset=test_dataset, 
-    batch_size=128, num_workers=2, pin_memory=True, shuffle=False)
+    batch_size=batch_size, num_workers=32, pin_memory=True, shuffle=False)
 
     return train_dataloader, test_dataloader
 ### code demo for MIMIC-CXR/CheXpert/CXR8 dataset and dataloader

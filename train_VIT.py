@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """
-Training process code for Unnamed Netowrk for ECG classification.
+Training process code for Unnamed Netowrk on HPC.
 """
 import argparse
 import os
@@ -27,7 +27,6 @@ import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 import torchvision
 from torch.cuda.amp import autocast as autocast
 from torch.cuda.amp import GradScaler as GradScaler
@@ -43,13 +42,17 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import wandb
 
-# import the model build class and dataloader
-from dataset import data_prep
+import torch_optimizer as optim
+from vit_pytorch import ViT
+
+
+from dataset_VIT import data_prep
 
 # check device available
 if torch.cuda.is_available():
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
+        device_id = [i for i in range(torch.cuda.device_count())]
         device = 'cuda'
     else:
         print("Let's use 1 GPU!")
@@ -59,7 +62,7 @@ else:
 
 # release the GPU
 torch.cuda.empty_cache()
-
+wandb.init(settings=wandb.Settings(start_method='fork'))
 
 def setup_seed(seed):
     # paddle.seed(seed)
@@ -69,24 +72,31 @@ def setup_seed(seed):
 
 def start_train(args, model, train_loader, test_loader, device):
     # learning rate decay and optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, 
-    weight_decay= 2e-5)
-    # optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, 
-    # momentum=0.9)
-    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 700], gamma=0.2)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min',
-     factor=0.5, patience=4, min_lr=0.00005, threshold=1)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, 
+    # weight_decay= 2e-5)
+    optimizer = optim.Lamb(model.parameters(), lr=args.lr, weight_decay=2e-5)
+
+    warmup_it = 400
+    lr_min, lr_max = args.lr/(2**5), args.lr
+    T_max = 400
+    lambda1 = lambda epoch: lr_max * epoch / warmup_it if epoch < warmup_it else (
+        lr_min + 0.5*(lr_max - lr_min)*(1 + np.cos(np.pi * (epoch-warmup_it)/T_max))
+    )
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lambda1], verbose=True)
+
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min',
+    #  factor=0.5, patience=4, min_lr=args.lr/16, threshold=2)
     
     # loss function
     criterion = nn.CrossEntropyLoss()
 
     print('Start training model...')
     print('---------------------------')
-    def train(model, criterion, optimizer, train_loader, device):
+    def train(model, criterion, optimizer, train_loader, device, epoch):
         epoch_loss = 0.0
         model.train()
-        n = 0
-        for data in train_loader:
+        # n= 0
+        for i, data in enumerate(train_loader):
         # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data['image'], data['target']
             inputs = inputs.to(device).contiguous()
@@ -96,6 +106,7 @@ def start_train(args, model, train_loader, test_loader, device):
             with autocast():
                 
                 outputs = model(inputs)
+                # outputs = torch.sigmoid(outputs)
                 loss = criterion(outputs, labels)
 
             # loss.backward()
@@ -105,9 +116,9 @@ def start_train(args, model, train_loader, test_loader, device):
             scaler.update()
             
             epoch_loss += loss.item()
-            n+=1
-            if n>5:
-                break
+            # n+=1
+            # if n>3:
+            #     break
         return model, optimizer, epoch_loss
 
     @torch.no_grad()
@@ -125,6 +136,7 @@ def start_train(args, model, train_loader, test_loader, device):
             labels = labels.to(device).contiguous()
 
             outputs = model(inputs)
+            # outputs = torch.sigmoid(outputs)
 
             loss = criterion(outputs, labels)
             
@@ -182,7 +194,8 @@ def start_train(args, model, train_loader, test_loader, device):
     scaler = GradScaler()
 
     for epoch in tqdm(range(args.epochs)):  # loop over the dataset multiple epochs
-        model, optimizer, epoch_loss = train(model, criterion, optimizer, train_loader, device)
+
+        model, optimizer, epoch_loss = train(model, criterion, optimizer, train_loader, device, epoch)
 
         train_loss_list.append(epoch_loss)
         
@@ -192,7 +205,7 @@ def start_train(args, model, train_loader, test_loader, device):
             test_loss_list.append(test_loss)
             test_auc_list.append(test_auc)
 
-        scheduler.step(test_loss)
+        scheduler.step()
 
         # compute ACC
         # test_auc = get_auc(model, test_loader)
@@ -207,7 +220,7 @@ def start_train(args, model, train_loader, test_loader, device):
             if args.save_model:
                 model_path = args.model_dir + '-' + args.task_comment+\
                 '-' + pretrain_str + '-' + 'LR=' + str(args.lr) +\
-                '-Batch=' + str(args.batch_size) + '-epoch=' + str(epoch) +\
+                '-Batch=' + str(args.batch_size) + '-epoch=' + str(args.epochs) +\
                 '-' + args.task + '-' + '-model'
 
                 torch.save(best_model.state_dict(), model_path)
@@ -319,7 +332,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_model", action="store_true", default=True)
     parser.add_argument("--criterion", default="CEL")
     parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument("--lr", type=float, default= 0.0005)
+    parser.add_argument("--lr", type=float, default= 0.03)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
     parser.add_argument("--lr_dec_rate", type=float, default=0.1)
     parser.add_argument("--lr_dec_step", type=int, default=150)
@@ -332,8 +345,8 @@ if __name__ == "__main__":
 
     if args.seed:
         setup_seed(args.seed)
-  
-    
+    print(os.getcwd())
+    os.chdir('/rds/general/user/cl522/home/chest-scan-work/')
     path = args.task + '/'
 
     if not os.path.exists(path):
@@ -347,11 +360,11 @@ if __name__ == "__main__":
         pretrain_str = 'pretrain'
     else:
         pretrain_str = 'no-pretrain'
-    if args.task_comment:
+    if args.model_type:
         wandb_task_name = args.task + '-' + str(args.epochs) + '-' +\
-            args.task_comment + '-' + pretrain_str
+            args.model_type + '-' + pretrain_str + '-HPC_task'
     else:
-        wandb_task_name = args.task + '-' + str(args.epochs)
+        wandb_task_name = args.task + '-' + str(args.epochs) + '-HPC_task'
 
     wandb.init(project="Chest-Scan-baseline", entity="cl522", name=wandb_task_name)
 
@@ -370,34 +383,40 @@ if __name__ == "__main__":
     print('---------------------------')
 
     # build the model
-    if args.model_type == 'resnet':
-        if args.pretrain == 'pretrain':
-            model = torchvision.models.resnet50(pretrained=True)
-            print('Using pretrained ResNet50!')
-        else:
-            model = torchvision.models.resnet50(pretrained=False)
-            print('Using no-pretrained ResNet50!')
-        model.conv1 = nn.Conv2d(1, 64, 7, 2, 3)
+    if args.model_type == 'vit':
+        print('Using no-pretrained ViT model!')
+        
         if args.task == 'CXR8':
-            model.fc = nn.Linear(2048, 8)
+            
+            model = ViT(
+                        image_size = 256,
+                        patch_size = 32,
+                        num_classes = 8,
+                        dim = 1024,
+                        depth = 6,
+                        heads = 16,
+                        mlp_dim = 2048,
+                        dropout = 0.1,
+                        emb_dropout = 0.1,
+                        channels=1
+                    )
         else:
-            model.fc = nn.Linear(2048, 13)
-    elif args.model_type == 'densenet':
-        if args.pretrain == 'pretrain':
-            model = torchvision.models.densenet121(pretrained=True)
-            print('Using pretrained DenseNet121!')
-        else:
-            model = torchvision.models.densenet121(pretrained=False)
-            print('Using no-pretrained DenseNet121!')
-        model.features.conv0 = nn.Conv2d(1, 64, 7, 2, 3)
-        if args.task == 'CXR8':
-            model.classifier = nn.Linear(1024, 8)
-        else:
-            model.classifier = nn.Linear(1024, 13)
-
+            
+            model = ViT(
+                        image_size = 256,
+                        patch_size = 32,
+                        num_classes = 13,
+                        dim = 1024,
+                        depth = 6,
+                        heads = 16,
+                        mlp_dim = 2048,
+                        dropout = 0.1,
+                        emb_dropout = 0.1,
+                        channels=1
+                    )
+    
+    model = torch.nn.DataParallel(model, device_ids=device_id, output_device=device_id[-1])
     model = model.to(device)
-    
-    
 
 
 

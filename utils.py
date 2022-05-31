@@ -191,10 +191,10 @@ def get_CheXpert_img(img_path, grey_scale=False, normalize=255, resize=256):
     if normalize == 1:
         return img
     else:
-    	if grey_scale:
-    		return img.astype('uint8')
+        if grey_scale:
+            return img.astype('uint8')
         else:
-        	return img
+            return img
 
 
 ### MIMIC-CXR Database
